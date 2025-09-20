@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from apps.core.models import Document
+from chatbot_poc.apps.core.models import Document
 
 
 class UploadSerializer(serializers.Serializer):

@@ -36,7 +36,7 @@ ALLOWED_HOSTS = [h.strip() for h in _AL.split(",") if h.strip()]
 
 # Application definition
 INSTALLED_APPS = [
-    # Django contrib
+    # Django built-in apps
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -44,16 +44,14 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
 
-    # Third-party
+    # Third-party apps
     "rest_framework",
-    # Note: If you want CORS support, install django-cors-headers and uncomment:
-    # "corsheaders",
 
-    # Local apps - using AppConfig references
-    "chatbot_poc.apps.core.apps.CoreConfig",
-    "chatbot_poc.apps.ingest.apps.IngestConfig",
-    "chatbot_poc.apps.retrieval.apps.RetrievalConfig",
-    "chatbot_poc.apps.api.apps.ApiConfig",
+    # Local apps - USE THIS FORMAT
+    "chatbot_poc.apps.core",
+    "chatbot_poc.apps.ingest",
+    "chatbot_poc.apps.retrieval",
+    "chatbot_poc.apps.api",
 ]
 
 MIDDLEWARE = [
@@ -73,7 +71,7 @@ ROOT_URLCONF = "chatbot_poc.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+         "DIRS": [os.path.join(BASE_DIR, "frontend")],  # 👈 add frontend here
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [

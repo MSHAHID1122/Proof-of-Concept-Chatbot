@@ -12,9 +12,9 @@ from rest_framework import status
 
 from .serializers import UploadSerializer
 
-from apps.core.models import Document
-from apps.retrieval import haystack_pipeline
-from apps.retrieval import indexer as retrieval_indexer
+from chatbot_poc.apps.core.models import Document
+from chatbot_poc.apps.retrieval import haystack_pipeline
+from chatbot_poc.apps.retrieval import indexer as retrieval_indexer
 
 logger = logging.getLogger(__name__)
 

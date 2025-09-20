@@ -1,2 +1,3 @@
 venv/
 .env
+chatbot_poc/__pycache__/
