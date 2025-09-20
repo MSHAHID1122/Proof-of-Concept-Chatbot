@@ -49,11 +49,11 @@ INSTALLED_APPS = [
     # Note: If you want CORS support, install django-cors-headers and uncomment:
     # "corsheaders",
 
-    # Local apps
-    "apps.core",
-    "apps.ingest",
-    "apps.retrieval",
-    "apps.api",
+    # Local apps - using AppConfig references
+    "chatbot_poc.apps.core.apps.CoreConfig",
+    "chatbot_poc.apps.ingest.apps.IngestConfig",
+    "chatbot_poc.apps.retrieval.apps.RetrievalConfig",
+    "chatbot_poc.apps.api.apps.ApiConfig",
 ]
 
 MIDDLEWARE = [
@@ -175,9 +175,3 @@ LOGGING = {
         "urllib3": {"level": "WARNING", "handlers": ["console"], "propagate": False},
     },
 }
-
-# Additional guidance
-# - For local development, copy .env.example to .env and fill in values (SECRET_KEY, OPENAI_API_KEY, ELASTICSEARCH_HOST/PORT, etc.)
-# - This settings file will attempt to load .env (if python-dotenv is installed). To install:
-#     pip install python-dotenv
-# - In production, provide environment variables through your deployment platform instead of a .env file.
