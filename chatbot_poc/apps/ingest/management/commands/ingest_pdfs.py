@@ -36,8 +36,8 @@ from typing import List, Optional
 from django.core.management.base import BaseCommand, CommandError
 from django.conf import settings
 
-from apps.core.models import Document
-from apps.ingest.utils import extract_text_from_pdf, split_text
+from chatbot_poc.apps.core.models import Document
+from chatbot_poc.apps.ingest.utils import extract_text_from_pdf, split_text
 
 logger = logging.getLogger(__name__)
 
