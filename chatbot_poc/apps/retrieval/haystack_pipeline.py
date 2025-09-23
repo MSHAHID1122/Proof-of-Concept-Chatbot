@@ -1,109 +1,78 @@
 """
-Haystack pipeline helpers for the POC.
+Haystack pipeline helpers for the POC (FAISS-based).
 
 Provides:
 - get_document_store(refresh_index: bool = False)
 - get_retriever(document_store)
 - write_documents(document_store, docs: List[dict])
 - update_embeddings(document_store, retriever)
-- retrieve_top_k(query: str, retriever, top_k: int = 5) -> List[dict]
+- retrieve_top_k(query: str, retriever, top_k: int = 5)
 
 Notes:
 - Expects `farm-haystack` (pip: farm-haystack) installed.
-- This module keeps things simple and defensive: it's intended as glue for the POC.
+- Uses FAISSDocumentStore instead of Elasticsearch (no external service required).
 """
 
 from typing import List, Dict, Any
 import logging
+import os
 
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
-# Default embedding dim for sentence-transformers/all-MiniLM-L6-v2
+# Defaults
 _DEFAULT_EMBEDDING_DIM = 384
 _DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-_DEFAULT_INDEX = getattr(settings, "HAYSTACK_INDEX", "haystack_document_index")
+_DEFAULT_INDEX_PATH = getattr(settings, "FAISS_INDEX_PATH", "faiss_index")
+_DEFAULT_SQL_URL = getattr(settings, "FAISS_SQL_URL", "sqlite:///faiss_doc_store.db")
 
 
 def get_document_store(refresh_index: bool = False, embedding_dim: int = _DEFAULT_EMBEDDING_DIM):
     """
-    Create and return an ElasticsearchDocumentStore configured from Django settings.
+    Create and return a FAISSDocumentStore.
 
     Args:
-        refresh_index: If True, attempt to delete the target index (development use only).
+        refresh_index: If True, delete any existing FAISS index/db (development use only).
         embedding_dim: Dimensionality of the embedding vectors stored.
 
     Returns:
-        An instance of ElasticsearchDocumentStore.
-
-    Raises:
-        ImportError if farm-haystack is not installed.
-        Exception for underlying Elasticsearch errors.
+        An instance of FAISSDocumentStore.
     """
     try:
-        from haystack.document_stores import ElasticsearchDocumentStore
+        from haystack.document_stores import FAISSDocumentStore
     except Exception as e:
-        logger.exception("Haystack (farm-haystack) is required but not installed.")
+        logger.exception("Haystack (farm-haystack) with FAISS is required but not installed.")
         raise
 
-    host = getattr(settings, "ELASTICSEARCH_HOST", "localhost")
-    port = int(getattr(settings, "ELASTICSEARCH_PORT", 9200))
-    index = getattr(settings, "HAYSTACK_INDEX", _DEFAULT_INDEX)
-
-    try:
-        # instantiate document store
-        document_store = ElasticsearchDocumentStore(
-            host=host,
-            port=port,
-            index=index,
-            embedding_dim=embedding_dim,
-            scheme="http",
-        )
-        logger.info("Connected to ElasticsearchDocumentStore at %s:%s index=%s", host, port, index)
-    except Exception as conn_err:
-        logger.exception("Failed to instantiate ElasticsearchDocumentStore: %s", conn_err)
-        raise
+    faiss_index_path = _DEFAULT_INDEX_PATH
+    sql_url = _DEFAULT_SQL_URL
 
     if refresh_index:
         try:
-            # Try deleting the index via haystack helper if available
-            try:
-                # Some versions have delete_index helper
-                document_store.delete_index(index=document_store.index)
-                logger.info("Deleted existing index via document_store.delete_index(%s).", document_store.index)
-            except Exception:
-                # Fallback to raw client call
-                client = getattr(document_store, "client", None)
-                if client is not None:
-                    client.indices.delete(index=document_store.index, ignore=[400, 404])
-                    logger.info("Deleted existing index via client.indices.delete(%s).", document_store.index)
-                else:
-                    logger.warning("Could not delete index: no document_store.client available.")
-            # After deletion, re-create index by writing an empty mapping (haystack will create when writing documents)
-        except Exception as del_err:
-            logger.exception("Failed to refresh index %s: %s", document_store.index, del_err)
-            raise
+            if os.path.exists(faiss_index_path):
+                os.remove(faiss_index_path)
+                logger.info("Deleted existing FAISS index file: %s", faiss_index_path)
+        except Exception as e:
+            logger.warning("Could not delete FAISS index: %s", e)
+
+    try:
+        document_store = FAISSDocumentStore(
+            sql_url=sql_url,
+            faiss_index_factory_str="Flat",
+            embedding_dim=embedding_dim
+        )
+        logger.info("Connected to FAISSDocumentStore at %s", sql_url)
+    except Exception as conn_err:
+        logger.exception("Failed to instantiate FAISSDocumentStore: %s", conn_err)
+        raise
 
     return document_store
 
 
 def get_retriever(document_store, embedding_model: str = None, use_gpu: bool = False):
-    """
-    Create an EmbeddingRetriever for the given document store.
-
-    Args:
-        document_store: Haystack DocumentStore instance.
-        embedding_model: Model name/path for sentence-transformers. Falls back to settings or default.
-        use_gpu: Whether to attempt to use GPU (if available).
-
-    Returns:
-        An EmbeddingRetriever instance.
-
-    Raises:
-        ImportError if haystack nodes are unavailable.
-    """
+    """Create an EmbeddingRetriever for the FAISS store."""
     try:
         from haystack.nodes import EmbeddingRetriever
     except Exception as e:
@@ -125,99 +94,42 @@ def get_retriever(document_store, embedding_model: str = None, use_gpu: bool = F
         )
         logger.info("Created EmbeddingRetriever using model=%s", embedding_model)
     except Exception as e:
-        logger.exception("Failed to create EmbeddingRetriever with model=%s: %s", embedding_model, e)
+        logger.exception("Failed to create EmbeddingRetriever: %s", e)
         raise
 
     return retriever
 
 
 def write_documents(document_store, docs: List[Dict[str, Any]]):
-    """
-    Write a list of documents into the Haystack document store.
-
-    Args:
-        document_store: Haystack DocumentStore instance.
-        docs: List of dicts in the form {"content": "...", "meta": {...}}.
-
-    Returns:
-        None
-
-    Notes:
-        This will append documents to the configured index.
-    """
+    """Write documents to FAISS store."""
     try:
-        # haystack accepts documents as list of dicts
         document_store.write_documents(docs)
-        logger.info("Wrote %d documents to index %s", len(docs), getattr(document_store, "index", "<unknown>"))
+        logger.info("Wrote %d documents to FAISS index", len(docs))
     except Exception as e:
-        logger.exception("Failed to write documents to document store: %s", e)
+        logger.exception("Failed to write documents: %s", e)
         raise
 
 
 def update_embeddings(document_store, retriever):
-    """
-    Compute/update embeddings for documents in the store using the retriever.
-
-    Args:
-        document_store: Haystack DocumentStore instance.
-        retriever: EmbeddingRetriever instance.
-
-    Returns:
-        None
-    """
+    """Update embeddings in FAISS store using the retriever."""
     try:
-        # document_store.update_embeddings expects a retriever
         document_store.update_embeddings(retriever)
-        logger.info("Triggered document_store.update_embeddings().")
+        logger.info("Updated embeddings in FAISS index.")
     except Exception as e:
         logger.exception("Failed to update embeddings: %s", e)
         raise
 
 
 def retrieve_top_k(query: str, retriever, top_k: int = 5) -> List[Dict[str, Any]]:
-    """
-    Retrieve top-k documents for a query using the given retriever.
-
-    Args:
-        query: The user query string.
-        retriever: EmbeddingRetriever (or compatible retriever) instance.
-        top_k: Number of results to return.
-
-    Returns:
-        List of dicts: [{"content": str, "meta": dict, "score": float}, ...]
-    """
+    """Retrieve top-k documents for a query using FAISS retriever."""
     results: List[Dict[str, Any]] = []
     try:
-        # Many haystack Retriever implementations provide a .retrieve(...) method.
-        if hasattr(retriever, "retrieve"):
-            docs = retriever.retrieve(query=query, top_k=top_k)
-        else:
-            # fallback: compute query embedding and query the document_store directly if available
-            logger.debug("Retriever has no 'retrieve' method; attempting fallback to embed_queries + document_store.query_by_embedding")
-            if not hasattr(retriever, "embed_queries"):
-                raise RuntimeError("Retriever has no retrieve or embed_queries methods.")
-            query_emb = retriever.embed_queries(texts=[query])[0]
-            ds = getattr(retriever, "document_store", None)
-            if ds is None:
-                raise RuntimeError("Cannot access document_store from retriever for fallback retrieval.")
-            # Attempt to use document_store.query_by_embedding if available
-            if hasattr(ds, "query_by_embedding"):
-                docs = ds.query_by_embedding(query_emb, top_k=top_k)
-            elif hasattr(ds, "query"):
-                # last-resort: plain text query (not semantic)
-                docs = ds.query(query=query, top_k=top_k)
-            else:
-                raise RuntimeError("Document store has no compatible query method for fallback retrieval.")
-        # docs is expected to be iterable of haystack.Document objects or dict-like
+        docs = retriever.retrieve(query=query, top_k=top_k)
         for d in docs[:top_k]:
-            try:
-                content = getattr(d, "content", None) or d.get("content")
-                meta = getattr(d, "meta", None) or d.get("meta", {})
-                score = getattr(d, "score", None) or d.get("score", None)
-                results.append({"content": content, "meta": meta, "score": score})
-            except Exception:
-                # tolerate unexpected document shape
-                logger.exception("Failed to parse retrieved document: %s", d)
+            content = getattr(d, "content", None) or d.get("content")
+            meta = getattr(d, "meta", None) or d.get("meta", {})
+            score = getattr(d, "score", None) or d.get("score", None)
+            results.append({"content": content, "meta": meta, "score": score})
     except Exception as e:
         logger.exception("Retrieval failed for query=%s: %s", query, e)
         raise
